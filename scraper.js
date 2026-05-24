@@ -8,15 +8,25 @@ puppeteer.use(StealthPlugin());
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox']
   });
-  const page = await browser.newPage();
   
   try {
-    console.log("Navigating to Toyota site...");
-    await page.goto("https://toyota-select.co.il/catalog/", { waitUntil: 'networkidle2' });
+    const page = await browser.newPage();
     
-    // Run the search directly inside the browser to bypass Imperva
+    // Set a realistic browser size
+    await page.setViewport({ width: 1280, height: 800 });
+    
+    console.log("Navigating to Toyota site...");
+    // Wait for the initial HTML to load, not the whole network
+    await page.goto("https://toyota-select.co.il/catalog/", { waitUntil: 'domcontentloaded' });
+    
+    console.log("Waiting 8 seconds for Imperva security check to clear...");
+    await new Promise(r => setTimeout(r, 8000));
+    
+    console.log("Running search...");
     const ajaxJson = await page.evaluate(async () => {
       const html = document.documentElement.innerHTML;
+      
+      // Grab the nonce
       const nonceMatch = html.match(/["']nonce["']\s*[:|=]\s*["']([a-z0-9]{8,12})["']/) || 
                          html.match(/nonce\s*:\s*["']([a-z0-9]{8,12})["']/);
       const nonce = nonceMatch ? nonceMatch[1] : "";
@@ -33,20 +43,35 @@ puppeteer.use(StealthPlugin());
 
       const res = await fetch("https://toyota-select.co.il/wp-admin/admin-ajax.php", {
         method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        headers: { 
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Accept": "application/json, text/javascript, */*; q=0.01",
+          "X-Requested-With": "XMLHttpRequest" // Crucial for WordPress
+        },
         body: postBody.toString()
       });
-      return res.json();
+      
+      const text = await res.text();
+      
+      // Safely check if Toyota gave us JSON or an HTML error page
+      try {
+        return JSON.parse(text);
+      } catch (e) {
+        return { error: "Not JSON", body: text.substring(0, 300) };
+      }
     });
 
+    if (ajaxJson.error) {
+      throw new Error(`Toyota returned HTML instead of data. Block reason: \n${ajaxJson.body}`);
+    }
+
     console.log("Found cars! Sending data to Vercel...");
-    
     const VERCEL_URL = process.env.VERCEL_URL; 
     const backendRes = await fetch(`${VERCEL_URL}/api/scan`, {
       method: "POST",
       headers: { 
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${process.env.CRON_SECRET}` // Added token here
+        "Authorization": `Bearer ${process.env.CRON_SECRET}`
       },
       body: JSON.stringify({ ajaxData: ajaxJson })
     });
