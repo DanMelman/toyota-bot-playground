@@ -22,4 +22,5 @@ jobs:
       - name: Run Scraper
         env:
           VERCEL_URL: ${{ secrets.VERCEL_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: node scraper.js
