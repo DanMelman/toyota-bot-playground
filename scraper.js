@@ -41,7 +41,10 @@ puppeteer.use(StealthPlugin());
     const VERCEL_URL = process.env.VERCEL_URL; 
     const backendRes = await fetch(`${VERCEL_URL}/api/scan`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { 
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${process.env.CRON_SECRET}` // Added token here
+      },
       body: JSON.stringify({ ajaxData: ajaxJson })
     });
     
